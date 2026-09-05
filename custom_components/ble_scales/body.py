@@ -64,17 +64,24 @@ class Profile:
 
 @dataclass(frozen=True)
 class BodyComposition:
-    """Derived values. Every field is an estimate, not a measurement."""
+    """Derived values. Every field is an estimate, not a measurement.
+
+    The impedance-dependent fields are Optional because they genuinely are:
+    weight and impedance arrive in SEPARATE advertisements, so there is a real
+    window during every weigh-in where weight is known and impedance is not.
+    BMI and BMR need no impedance at all, so they are populated from the first
+    frame rather than made to wait for a number they never depended on.
+    """
 
     bmi: float
-    fat_free_mass_kg: float
-    body_fat_kg: float
-    body_fat_percent: float
-    total_body_water_kg: float
-    total_body_water_percent: float
-    skeletal_muscle_kg: float
-    skeletal_muscle_percent: float
     basal_metabolic_rate_kcal: int
+    fat_free_mass_kg: float | None = None
+    body_fat_kg: float | None = None
+    body_fat_percent: float | None = None
+    total_body_water_kg: float | None = None
+    total_body_water_percent: float | None = None
+    skeletal_muscle_kg: float | None = None
+    skeletal_muscle_percent: float | None = None
 
     def as_dict(self) -> dict[str, float | int]:
         return asdict(self)
@@ -124,30 +131,44 @@ def skeletal_muscle_mass(impedance: float, profile: Profile) -> float:
 def compute(
     weight_kg: float, impedance: float | None, profile: Profile
 ) -> BodyComposition | None:
-    """Derive everything derivable. Returns None if inputs are unusable.
+    """Derive everything derivable from what is currently known.
 
-    `impedance` of None means a weight-only frame; there is no way to estimate
-    composition from weight alone that is worth the pixels, so this returns
-    None rather than falling back to a BMI-based fat estimate.
+    Returns None only when the weight itself is unusable. A missing or
+    implausible impedance costs you the composition fields and nothing else --
+    BMI and BMR are still returned, because neither ever needed impedance and
+    withholding them would just be a bug that looks like caution.
+
+    No BMI-based body-fat fallback is offered when impedance is absent. Those
+    estimates are barely better than guessing from weight alone, and presenting
+    one in the same field that sometimes holds a BIA estimate would silently
+    mix two very different things in one sensor's history.
     """
-    if weight_kg <= 0 or impedance is None or impedance <= 0:
+    if weight_kg <= 0:
         return None
+
+    basics = {
+        "bmi": round(_bmi(weight_kg, profile.height_cm), 1),
+        "basal_metabolic_rate_kcal": basal_metabolic_rate(weight_kg, profile),
+    }
+
+    if impedance is None or impedance <= 0:
+        return BodyComposition(**basics)
 
     ffm = fat_free_mass(weight_kg, impedance, profile)
     # A nonsensical impedance (bare feet not making contact, a child on an
     # adult profile) can drive FFM past body weight, which would yield negative
     # fat. Refuse rather than clamp: a clamped 0 % reads as a real measurement.
     if not 0 < ffm < weight_kg:
-        return None
+        return BodyComposition(**basics)
 
     fat_kg = weight_kg - ffm
     tbw_kg = ffm * HYDRATION_OF_FFM
     smm_kg = skeletal_muscle_mass(impedance, profile)
     if not 0 < smm_kg < ffm:
-        return None
+        return BodyComposition(**basics)
 
     return BodyComposition(
-        bmi=round(_bmi(weight_kg, profile.height_cm), 1),
+        **basics,
         fat_free_mass_kg=round(ffm, 2),
         body_fat_kg=round(fat_kg, 2),
         body_fat_percent=round(fat_kg / weight_kg * 100.0, 1),
@@ -155,5 +176,4 @@ def compute(
         total_body_water_percent=round(tbw_kg / weight_kg * 100.0, 1),
         skeletal_muscle_kg=round(smm_kg, 2),
         skeletal_muscle_percent=round(smm_kg / weight_kg * 100.0, 1),
-        basal_metabolic_rate_kcal=basal_metabolic_rate(weight_kg, profile),
     )

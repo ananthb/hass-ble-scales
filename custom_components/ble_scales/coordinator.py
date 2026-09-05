@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from .assign import Assignment, Person, assign_reading
 from .body import BodyComposition, Profile, compute
-from .const import ADVERTISEMENT_TIMEOUT_SECONDS
+from .const import ADVERTISEMENT_TIMEOUT_SECONDS, CLAIM_WINDOW_SECONDS
 from .parser import PARSERS, SERVICE_FAMILIES, ScaleReading
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ class ScaleState:
     stable: bool = False
     person_name: str | None = None
     assignment_reason: str = "no reading yet"
+    claimed_by: str | None = None
     body: BodyComposition | None = None
     last_update: float = 0.0
 
@@ -90,6 +91,37 @@ class ScaleCoordinator:
         #: replaces it). Without this, composition could never be computed:
         #: neither frame carries both numbers.
         self._pending_weight_kg: float | None = None
+        #: Set by a person's "weighing in next" button. Holds their name and the
+        #: monotonic deadline after which it is ignored.
+        self._claim: tuple[str, float] | None = None
+
+    # -- explicit claims ---------------------------------------------------
+
+    @callback
+    def async_claim(self, person_name: str) -> None:
+        """Record that `person_name` is about to weigh in.
+
+        Replaces any existing claim rather than queueing: two people cannot be
+        next, and the most recent press is the one that reflects reality.
+        """
+        self._claim = (person_name, time.monotonic() + CLAIM_WINDOW_SECONDS)
+        self._notify()
+
+    @property
+    def active_claim(self) -> str | None:
+        """The unexpired claim, if any. Expiry is evaluated on read so no timer
+        is needed and a stale claim can never fire late."""
+        if self._claim is None:
+            return None
+        name, deadline = self._claim
+        if time.monotonic() >= deadline:
+            self._claim = None
+            return None
+        return name
+
+    @callback
+    def async_clear_claim(self) -> None:
+        self._claim = None
 
     async def async_start(self) -> None:
         self._unsub = bluetooth.async_register_callback(
@@ -153,13 +185,24 @@ class ScaleCoordinator:
         if reading.weight_kg is not None:
             self.state.weight_kg = reading.weight_kg
             self._pending_weight_kg = reading.weight_kg
-            assignment = assign_reading(reading.weight_kg, self.people, self._is_home())
+            claimed = self.active_claim
+            assignment = assign_reading(
+                reading.weight_kg, self.people, self._is_home(), claimed
+            )
             self._apply_assignment(assignment)
+            # Consume the claim only once it has actually assigned something.
+            # Clearing it on any frame would burn the claim on a 2 kg reading
+            # taken while the scale was still settling underfoot.
+            if claimed is not None and assignment.assigned and reading.stable:
+                self.async_clear_claim()
 
         if reading.impedance is not None:
             self.state.impedance = reading.impedance
 
         self._recompute_body()
+
+    def _refresh_claim_state(self) -> None:
+        self.state.claimed_by = self.active_claim
 
     def _apply_assignment(self, assignment: Assignment) -> None:
         self.state.person_name = assignment.person.name if assignment.person else None

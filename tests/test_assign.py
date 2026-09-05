@@ -51,3 +51,38 @@ def test_no_people_configured():
     result = assign_reading(75.0, [])
     assert result.person is None
     assert "no people configured" in result.reason
+
+
+def test_button_claim_wins_outright():
+    """A claim must beat weight inference, including a confident single match."""
+    result = assign_reading(62.0, [ANANTH, PARTNER], claimed_name="Ananth")
+    assert result.person is ANANTH
+    assert "claimed by button" in result.reason
+
+
+def test_claim_wins_where_weight_would_be_ambiguous():
+    """The case the button exists for: two people of similar weight."""
+    result = assign_reading(76.0, [ANANTH, CLOSE], claimed_name="Close")
+    assert result.person is CLOSE
+
+
+def test_claim_wins_over_absent_presence():
+    """Pressing your own button while marked away still claims the reading."""
+    result = assign_reading(
+        76.0,
+        [ANANTH, CLOSE],
+        {"person.ananth": False, "person.close": False},
+        claimed_name="Ananth",
+    )
+    assert result.person is ANANTH
+
+
+def test_claim_for_unknown_person_falls_back_to_inference():
+    """A stale claim naming someone since deleted must not strand the reading."""
+    result = assign_reading(75.2, [ANANTH, PARTNER], claimed_name="Ghost")
+    assert result.person is ANANTH
+    assert "weight band" in result.reason
+
+
+def test_claim_with_nobody_configured_is_still_unassigned():
+    assert assign_reading(75.0, [], claimed_name="Ananth").person is None

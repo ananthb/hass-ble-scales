@@ -10,8 +10,13 @@ So the rule throughout this module is: assign only when the evidence is
 unambiguous, and otherwise return nobody. It never falls back to "closest
 match wins" when two candidates are plausible.
 
-Two signals, applied in order:
+Three signals, applied in order:
 
+  0. An explicit claim -- somebody pressed "weighing in next" on their button.
+     This beats everything else and is not second-guessed: a person saying who
+     they are is better evidence than any inference over their weight, and if
+     the claim were overridden by a weight band the button would be useless
+     precisely when it is needed (two people of similar weight).
   1. Weight band -- a person claims a reading within `tolerance` of their
      expected weight. Cheap, works with no other integration set up.
   2. Presence -- if the band leaves more than one candidate, drop those whose
@@ -58,15 +63,29 @@ def assign_reading(
     weight_kg: float,
     people: list[Person],
     is_home: dict[str, bool] | None = None,
+    claimed_name: str | None = None,
 ) -> Assignment:
     """Pick the person a weight belongs to, or nobody.
 
     `is_home` maps a person_entity id to whether that entity is currently home.
     Entities missing from the mapping are treated as "unknown", which counts as
     present -- absence of evidence must not silently exclude someone.
+
+    `claimed_name` is set when someone pressed their weigh-in button recently.
+    The caller is responsible for expiring the claim; by the time it reaches
+    here it is taken at face value.
     """
     if not people:
         return Assignment(None, "no people configured")
+
+    if claimed_name is not None:
+        claimed = next((p for p in people if p.name == claimed_name), None)
+        if claimed is not None:
+            # Deliberately NOT sanity-checked against the weight band. Someone
+            # who just pressed their own button knows better than a regression
+            # over their last known weight, and rejecting the claim on a weight
+            # mismatch would break the exact case the button exists for.
+            return Assignment(claimed, "claimed by button press")
 
     in_band = [
         p for p in people if abs(weight_kg - p.expected_weight_kg) <= p.weight_tolerance_kg

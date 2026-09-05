@@ -21,3 +21,8 @@ DEFAULT_WEIGHT_TOLERANCE_KG = 5.0
 #: nothing has arrived for this long the sensors go unavailable rather than
 #: showing a stale weight forever.
 ADVERTISEMENT_TIMEOUT_SECONDS = 300
+
+#: How long a "weighing in next" button press stays valid. Long enough to walk
+#: to the scale and for it to settle, short enough that a forgotten press does
+#: not silently capture somebody else's weigh-in an hour later.
+CLAIM_WINDOW_SECONDS = 300

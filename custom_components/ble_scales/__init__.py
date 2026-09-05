@@ -21,7 +21,7 @@ from .const import (
 )
 from .coordinator import ScaleCoordinator
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR]
 
 
 def people_from_options(options: dict) -> list[Person]:

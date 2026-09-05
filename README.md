@@ -24,7 +24,8 @@ never opens a GATT connection, which is not merely simpler:
 |---|---|
 | Weight | measured |
 | Impedance | measured (disabled by default) |
-| Person / Assignment reason | inferred, see below |
+| Person / Assignment reason / Claimed by | inferred, see below |
+| A "weighing in" button per person | explicit claim |
 | BMI, body fat (% and kg), fat-free mass, skeletal muscle, body water, BMR | **estimated**, see below |
 
 ## Read this before trusting the body-composition numbers
@@ -63,8 +64,13 @@ multi-segment scale. This family broadcasts one, so they cannot be used here.
 
 ## Assigning readings to people
 
-The scale broadcasts anonymously, so this is inference. Two signals, in order:
+The scale broadcasts anonymously, so this is inference. Three signals, in order:
 
+0. **Press your button.** Each configured person gets a *"weighing in"* button.
+   Press it and the next reading within five minutes is yours, no matter what
+   the weight says. Put them on a dashboard or a tablet by the scale. This beats
+   every inference below and is not second-guessed — someone saying who they are
+   is better evidence than a regression over their last known weight.
 1. **Weight band** — a reading within your configured tolerance (default 5 kg)
    of your expected weight is yours.
 2. **Presence** — if several people match on weight, those whose linked
@@ -76,9 +82,17 @@ match would silently corrupt the history of two people at once, and nothing
 downstream could detect it. An unassigned reading is a nuisance; a
 misattributed one is data loss.
 
-Configure people under the integration's options. Height, age and sex are
-required for any body composition; without them you still get weight and
-impedance.
+People are configured **during initial setup**, and can be added, edited or
+removed later under the integration's options. Height, age and sex are what turn
+a weight into body composition; with nobody configured you get weight and
+impedance only, and the `Assignment reason` sensor will say so.
+
+BMI and basal metabolic rate need no impedance, so they appear as soon as a
+weight arrives for a known person. The BIA-derived fields wait for the impedance
+frame, which is a separate advertisement.
+
+The scale does not have to be awake to set this up: if nothing is advertising,
+the flow asks for the Bluetooth address directly.
 
 ## Supported scales
 

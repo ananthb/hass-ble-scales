@@ -3,17 +3,38 @@
     "flow_title": "{name}",
     "step": {
       "confirm": {
-        "description": "Add the scale {name}? Readings arrive passively from its advertisements; nothing connects to it."
+        "description": "Add the scale {name}? Readings arrive passively from its advertisements; nothing ever connects to it."
       },
       "user": {
         "title": "Add a BLE scale",
-        "description": "Only scales advertising right now are listed. These scales sleep between weigh-ins, so step on yours and try again if the list is empty.",
+        "description": "Pick a scale that is advertising right now, or leave this and enter an address by hand.",
         "data": { "address": "Scale" }
+      },
+      "manual": {
+        "title": "Enter the scale's address",
+        "description": "These scales sleep between weigh-ins and only advertise while someone is standing on them, so nothing may be listed. Enter the Bluetooth address (AA:BB:CC:DD:EE:FF) to set it up now; entities stay unavailable until the first reading arrives.",
+        "data": { "address": "Bluetooth address" }
+      },
+      "person": {
+        "title": "Who uses this scale?",
+        "description": "Height, age and sex are what turn a weight into body composition — without a person configured, only weight and impedance are reported. Each person also gets a “weighing in” button to claim the next reading.\n\nPeople added so far: {count}. Scale currently reads: {seen}.",
+        "data": {
+          "name": "Name",
+          "height_cm": "Height",
+          "age_years": "Age",
+          "sex": "Sex",
+          "expected_weight_kg": "Usual weight",
+          "weight_tolerance_kg": "Match within",
+          "person_entity": "Linked person (breaks ties by presence)",
+          "add_another": "Add another person"
+        }
       }
+    },
+    "error": {
+      "invalid_address": "That is not a Bluetooth address. Expected six hex pairs, like A0:91:61:C8:0B:5D."
     },
     "abort": {
       "already_configured": "This scale is already set up.",
-      "no_devices_found": "No supported scale is advertising. Step on the scale and retry.",
       "not_supported": "That device uses the same Bluetooth service as a supported scale, but its readings are in a format this integration does not decode."
     }
   },
@@ -21,9 +42,45 @@
     "step": {
       "init": {
         "title": "People",
-        "description": "Height, age and sex are required to estimate body composition; without them only weight and impedance are reported. Readings are assigned by weight, with a linked person entity breaking ties when two people are close in weight.",
-        "data": { "people": "People" }
+        "menu_options": {
+          "add": "Add a person",
+          "edit": "Edit a person",
+          "remove": "Remove people"
+        }
+      },
+      "add": {
+        "title": "Add a person",
+        "data": {
+          "name": "Name",
+          "height_cm": "Height",
+          "age_years": "Age",
+          "sex": "Sex",
+          "expected_weight_kg": "Usual weight",
+          "weight_tolerance_kg": "Match within",
+          "person_entity": "Linked person (breaks ties by presence)"
+        }
+      },
+      "edit": {
+        "title": "Edit a person",
+        "data": {
+          "name": "Name",
+          "height_cm": "Height",
+          "age_years": "Age",
+          "sex": "Sex",
+          "expected_weight_kg": "Usual weight",
+          "weight_tolerance_kg": "Match within",
+          "person_entity": "Linked person (breaks ties by presence)"
+        }
+      },
+      "remove": {
+        "title": "Remove people",
+        "data": { "people": "People to remove" }
       }
+    }
+  },
+  "selector": {
+    "sex": {
+      "options": { "male": "Male", "female": "Female" }
     }
   },
   "entity": {
@@ -32,6 +89,7 @@
       "impedance": { "name": "Impedance" },
       "person": { "name": "Person" },
       "assignment_reason": { "name": "Assignment reason" },
+      "claimed_by": { "name": "Claimed by" },
       "bmi": { "name": "BMI" },
       "body_fat_percent": { "name": "Body fat" },
       "body_fat_kg": { "name": "Body fat mass" },
@@ -39,6 +97,9 @@
       "skeletal_muscle_kg": { "name": "Skeletal muscle mass" },
       "total_body_water_percent": { "name": "Body water" },
       "basal_metabolic_rate_kcal": { "name": "Basal metabolic rate" }
+    },
+    "button": {
+      "claim": { "name": "{person} weighing in" }
     }
   }
 }

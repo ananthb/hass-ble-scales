@@ -60,17 +60,6 @@ def test_bmi_matches_definition():
     assert result.bmi == pytest.approx(75.0 / 1.78**2, abs=0.05)
 
 
-def test_no_impedance_yields_nothing():
-    """A weight-only frame must not produce a fabricated composition."""
-    assert compute(75.0, None, MALE) is None
-
-
-def test_absurd_impedance_is_refused_not_clamped():
-    """A tiny impedance drives FFM above body weight; that must return None
-    rather than a clamped 0 % body fat, which would read as a real result."""
-    assert compute(75.0, 1, MALE) is None
-
-
 def test_sex_changes_the_result():
     same_body = Profile(height_cm=170, age_years=30, sex=SEX_MALE)
     other = Profile(height_cm=170, age_years=30, sex=SEX_FEMALE)
@@ -86,3 +75,25 @@ def test_higher_impedance_means_more_fat():
     high = compute(75.0, 600, MALE)
     assert low is not None and high is not None
     assert high.body_fat_percent > low.body_fat_percent
+
+
+def test_bmi_and_bmr_survive_a_missing_impedance():
+    """Weight and impedance arrive in separate advertisements, so this is the
+    normal state partway through a weigh-in -- not an error case."""
+    result = compute(75.0, None, MALE)
+    assert result is not None
+    assert result.bmi == pytest.approx(23.7, abs=0.1)
+    assert result.basal_metabolic_rate_kcal == 1678
+    assert result.body_fat_percent is None
+    assert result.fat_free_mass_kg is None
+
+
+def test_absurd_impedance_keeps_bmi_but_drops_composition():
+    result = compute(75.0, 1, MALE)
+    assert result is not None
+    assert result.bmi is not None
+    assert result.body_fat_percent is None
+
+
+def test_zero_weight_still_yields_nothing():
+    assert compute(0.0, 500, MALE) is None

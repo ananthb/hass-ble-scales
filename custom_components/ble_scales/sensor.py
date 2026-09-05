@@ -53,7 +53,6 @@ SENSORS: tuple[ScaleSensorDescription, ...] = (
         translation_key="impedance",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="Ω",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.impedance,
     ),
     ScaleSensorDescription(
@@ -61,11 +60,18 @@ SENSORS: tuple[ScaleSensorDescription, ...] = (
         translation_key="person",
         value_fn=lambda s: s.person_name,
     ),
+    # Enabled by default on purpose. When every derived sensor reads unknown,
+    # this is the entity that says why -- "no people configured" is a far more
+    # useful thing to see than eight blanks.
     ScaleSensorDescription(
         key="assignment_reason",
         translation_key="assignment_reason",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.assignment_reason,
+    ),
+    ScaleSensorDescription(
+        key="claimed_by",
+        translation_key="claimed_by",
+        value_fn=lambda s: s.claimed_by or "nobody",
     ),
     ScaleSensorDescription(
         key="bmi",
@@ -176,7 +182,11 @@ class ScaleSensor(SensorEntity):
     def available(self) -> bool:
         # The person and reason sensors stay available so an unassigned reading
         # can explain itself; a stale weight would just be misleading.
-        if self.entity_description.key in ("person", "assignment_reason"):
+        if self.entity_description.key in (
+            "person",
+            "assignment_reason",
+            "claimed_by",
+        ):
             return True
         return self._coordinator.state.available
 
