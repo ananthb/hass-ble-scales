@@ -50,4 +50,4 @@ Protocol decoding is owed to [openScale](https://github.com/oliexdev/openScale).
 
 ## Licence
 
-AGPL-3.0-only. See [`LICENSE`](LICENSE).
+GPL-3.0-only. See [`LICENSE`](LICENSE).
