@@ -1,13 +1,17 @@
 """Config flow for BLE Scales.
 
-Two things shape this flow, both learned from the first real install:
+The shape of this flow is set by three facts learned from real installs:
 
-  * A scale that is not being stood on does not advertise, so a flow that only
+  * A scale that nobody is standing on does not advertise, so a flow that only
     offers discovered devices is unusable most of the time. Entering an address
-    by hand is always available.
-  * With nobody configured, every sensor except weight reads "unknown", because
+    by hand is always reachable.
+  * With nobody configured, every sensor but weight reads "unknown", because
     height, age and sex are what turn a weight into anything else. People are
-    therefore part of INITIAL setup rather than an options page found later.
+    therefore part of INITIAL setup, not an options page found later.
+  * Typing a person's details is the slowest possible way to do this. The
+    default path is: pick yourself from the people Home Assistant already
+    knows, stand on the scale, done. Manual entry stays for people who are not
+    in Home Assistant at all -- a guest, a child without an account.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.const import CONF_ADDRESS
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 
 from .body import SEX_FEMALE, SEX_MALE
@@ -41,83 +45,12 @@ from .const import (
 )
 from .coordinator import parse_service_info
 
-CONF_ADD_ANOTHER = "add_another"
-
-#: Only used to pre-fill the "expected weight" box. A person's own last reading
-#: is a far better starting point than a made-up number, and getting this field
-#: wrong is precisely what leaves readings unassigned.
+#: Only used when someone is added manually and the scale is not advertising.
 FALLBACK_EXPECTED_WEIGHT_KG = 70.0
 
 
-def person_schema(
-    defaults: dict[str, Any] | None = None, *, offer_add_another: bool = True
-) -> vol.Schema:
-    """Schema for one person. `defaults` pre-fills it when editing."""
-    d = defaults or {}
-    fields: dict[Any, Any] = {
-        vol.Required(CONF_NAME, default=d.get(CONF_NAME, vol.UNDEFINED)): (
-            selector.TextSelector()
-        ),
-        vol.Required(CONF_HEIGHT_CM, default=d.get(CONF_HEIGHT_CM, 170)): (
-            selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=100, max=250, step=1, unit_of_measurement="cm"
-                )
-            )
-        ),
-        vol.Required(CONF_AGE_YEARS, default=d.get(CONF_AGE_YEARS, 30)): (
-            selector.NumberSelector(
-                selector.NumberSelectorConfig(min=5, max=120, step=1)
-            )
-        ),
-        vol.Required(CONF_SEX, default=d.get(CONF_SEX, SEX_MALE)): (
-            selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[SEX_MALE, SEX_FEMALE], translation_key="sex"
-                )
-            )
-        ),
-        vol.Required(
-            CONF_EXPECTED_WEIGHT_KG,
-            default=d.get(CONF_EXPECTED_WEIGHT_KG, FALLBACK_EXPECTED_WEIGHT_KG),
-        ): selector.NumberSelector(
-            selector.NumberSelectorConfig(
-                min=10, max=250, step=0.1, unit_of_measurement="kg"
-            )
-        ),
-        vol.Optional(
-            CONF_WEIGHT_TOLERANCE_KG,
-            default=d.get(CONF_WEIGHT_TOLERANCE_KG, DEFAULT_WEIGHT_TOLERANCE_KG),
-        ): selector.NumberSelector(
-            selector.NumberSelectorConfig(
-                min=0.5, max=25, step=0.5, unit_of_measurement="kg"
-            )
-        ),
-        vol.Optional(
-            CONF_PERSON_ENTITY, default=d.get(CONF_PERSON_ENTITY, vol.UNDEFINED)
-        ): selector.EntitySelector(selector.EntitySelectorConfig(domain="person")),
-    }
-    if offer_add_another:
-        fields[vol.Optional(CONF_ADD_ANOTHER, default=False)] = (
-            selector.BooleanSelector()
-        )
-    return vol.Schema(fields)
-
-
-def _clean(person: dict[str, Any]) -> dict[str, Any]:
-    """Strip flow-control keys and normalise types before storing."""
-    out = {k: v for k, v in person.items() if k != CONF_ADD_ANOTHER}
-    out[CONF_HEIGHT_CM] = float(out[CONF_HEIGHT_CM])
-    out[CONF_AGE_YEARS] = int(out[CONF_AGE_YEARS])
-    out[CONF_EXPECTED_WEIGHT_KG] = float(out[CONF_EXPECTED_WEIGHT_KG])
-    out[CONF_WEIGHT_TOLERANCE_KG] = float(
-        out.get(CONF_WEIGHT_TOLERANCE_KG, DEFAULT_WEIGHT_TOLERANCE_KG)
-    )
-    return out
-
-
-def _last_seen_weight(hass, address: str) -> float | None:
-    """Best-effort current weight, used only to pre-fill the setup form."""
+def live_weight(hass: HomeAssistant, address: str) -> float | None:
+    """The weight the scale is broadcasting right now, if it is awake."""
     for info in bluetooth.async_discovered_service_info(hass, False):
         if info.address.upper() != address.upper():
             continue
@@ -127,18 +60,223 @@ def _last_seen_weight(hass, address: str) -> float | None:
     return None
 
 
-class BleScalesConfigFlow(ConfigFlow, domain=DOMAIN):
+def person_name(hass: HomeAssistant, entity_id: str) -> str:
+    """Display name for a Home Assistant person entity."""
+    state = hass.states.get(entity_id)
+    if state is not None and state.attributes.get("friendly_name"):
+        return str(state.attributes["friendly_name"])
+    # The entity may not exist yet during a restore; the object id still reads
+    # better than an empty name.
+    return entity_id.split(".", 1)[-1].replace("_", " ").title()
+
+
+def available_people(hass: HomeAssistant, taken: list[str]) -> dict[str, str]:
+    """Home Assistant person entities not already attached to this scale."""
+    return {
+        state.entity_id: person_name(hass, state.entity_id)
+        for state in hass.states.async_all("person")
+        if state.entity_id not in taken
+    }
+
+
+def body_detail_schema(defaults: dict[str, Any] | None = None) -> dict[Any, Any]:
+    """Height, age and sex. Optional everywhere: without them a person still
+    gets assignment, a button and a weight history, just no composition."""
+    d = defaults or {}
+    return {
+        vol.Optional(CONF_HEIGHT_CM, default=d.get(CONF_HEIGHT_CM, vol.UNDEFINED)): (
+            selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=100, max=250, step=1, unit_of_measurement="cm"
+                )
+            )
+        ),
+        vol.Optional(CONF_AGE_YEARS, default=d.get(CONF_AGE_YEARS, vol.UNDEFINED)): (
+            selector.NumberSelector(
+                selector.NumberSelectorConfig(min=5, max=120, step=1)
+            )
+        ),
+        vol.Optional(CONF_SEX, default=d.get(CONF_SEX, vol.UNDEFINED)): (
+            selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[SEX_MALE, SEX_FEMALE], translation_key="sex"
+                )
+            )
+        ),
+    }
+
+
+def manual_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+    """Everything typed by hand, for someone with no Home Assistant person."""
+    d = defaults or {}
+    fields: dict[Any, Any] = {
+        vol.Required(CONF_NAME, default=d.get(CONF_NAME, vol.UNDEFINED)): (
+            selector.TextSelector()
+        ),
+        vol.Required(
+            CONF_EXPECTED_WEIGHT_KG,
+            default=d.get(CONF_EXPECTED_WEIGHT_KG, FALLBACK_EXPECTED_WEIGHT_KG),
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=10, max=250, step=0.1, unit_of_measurement="kg"
+            )
+        ),
+    }
+    fields.update(body_detail_schema(d))
+    fields[
+        vol.Optional(
+            CONF_WEIGHT_TOLERANCE_KG,
+            default=d.get(CONF_WEIGHT_TOLERANCE_KG, DEFAULT_WEIGHT_TOLERANCE_KG),
+        )
+    ] = selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=0.5, max=25, step=0.5, unit_of_measurement="kg"
+        )
+    )
+    return vol.Schema(fields)
+
+
+def clean_person(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalise a person record before storing it."""
+    out: dict[str, Any] = {
+        CONF_NAME: raw[CONF_NAME],
+        CONF_EXPECTED_WEIGHT_KG: float(raw[CONF_EXPECTED_WEIGHT_KG]),
+        CONF_WEIGHT_TOLERANCE_KG: float(
+            raw.get(CONF_WEIGHT_TOLERANCE_KG) or DEFAULT_WEIGHT_TOLERANCE_KG
+        ),
+    }
+    if raw.get(CONF_HEIGHT_CM):
+        out[CONF_HEIGHT_CM] = float(raw[CONF_HEIGHT_CM])
+    if raw.get(CONF_AGE_YEARS):
+        out[CONF_AGE_YEARS] = int(raw[CONF_AGE_YEARS])
+    if raw.get(CONF_SEX):
+        out[CONF_SEX] = raw[CONF_SEX]
+    if raw.get(CONF_PERSON_ENTITY):
+        out[CONF_PERSON_ENTITY] = raw[CONF_PERSON_ENTITY]
+    return out
+
+
+class PeopleMixin:
+    """The add-a-person steps, shared by initial setup and options."""
+
+    hass: HomeAssistant
+    _address: str
+    _people: list[dict[str, Any]]
+    _pending_entity: str | None = None
+
+    def _menu_options(self) -> list[str]:
+        return ["from_ha", "manual", "finish"]
+
+    async def async_step_people(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose how to add someone, or stop."""
+        return self.async_show_menu(
+            step_id="people",
+            menu_options=self._menu_options(),
+            description_placeholders={"count": str(len(self._people))},
+        )
+
+    async def async_step_from_ha(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pick someone Home Assistant already knows about."""
+        taken = [p[CONF_PERSON_ENTITY] for p in self._people if p.get(CONF_PERSON_ENTITY)]
+        choices = available_people(self.hass, taken)
+        if not choices:
+            return await self.async_step_manual()
+
+        if user_input is not None:
+            self._pending_entity = user_input[CONF_PERSON_ENTITY]
+            return await self.async_step_weigh()
+
+        return self.async_show_form(
+            step_id="from_ha",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_PERSON_ENTITY): vol.In(choices)}
+            ),
+        )
+
+    async def async_step_weigh(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Read the person's usual weight off the scale instead of asking.
+
+        Submitting samples whatever the scale is broadcasting at that moment,
+        which is why the form says to stand on it first. Getting this number
+        wrong is the single most common reason a later reading goes unassigned,
+        and measuring it is strictly better than asking someone to recall it.
+
+        Height, age and sex are offered here too, all optional. They are the
+        only things the scale cannot measure for itself, and while you are
+        already standing there is the one moment you are certain to be thinking
+        about it. Skipping them costs only the composition sensors.
+        """
+        assert self._pending_entity is not None
+        name = person_name(self.hass, self._pending_entity)
+        seen = live_weight(self.hass, self._address)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            if seen is None:
+                # Not an error in the device sense -- the scale is simply not
+                # broadcasting yet. Say so and let them try again rather than
+                # dropping them out of the flow.
+                errors["base"] = "no_reading"
+            else:
+                self._people.append(
+                    clean_person(
+                        {
+                            **user_input,
+                            CONF_NAME: name,
+                            CONF_PERSON_ENTITY: self._pending_entity,
+                            CONF_EXPECTED_WEIGHT_KG: seen,
+                        }
+                    )
+                )
+                self._pending_entity = None
+                return await self.async_step_people()
+
+        return self.async_show_form(
+            step_id="weigh",
+            data_schema=vol.Schema(body_detail_schema(user_input)),
+            errors=errors,
+            description_placeholders={
+                "name": name,
+                "seen": f"{seen:.1f} kg" if seen is not None else "nothing yet",
+            },
+        )
+
+    async def async_step_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add someone who is not a Home Assistant person -- a guest, a child."""
+        if user_input is not None:
+            self._people.append(clean_person(user_input))
+            return await self.async_step_people()
+
+        seen = live_weight(self.hass, self._address)
+        defaults = {CONF_EXPECTED_WEIGHT_KG: seen} if seen is not None else {}
+        return self.async_show_form(
+            step_id="manual",
+            data_schema=manual_schema(defaults),
+            description_placeholders={
+                "seen": f"{seen:.1f} kg" if seen is not None else "nothing right now"
+            },
+        )
+
+
+class BleScalesConfigFlow(PeopleMixin, ConfigFlow, domain=DOMAIN):
     """Handle discovery and setup of a scale."""
 
     VERSION = 1
 
     def __init__(self) -> None:
         self._discovered: bluetooth.BluetoothServiceInfoBleak | None = None
-        self._address: str | None = None
+        self._address: str = ""
         self._title: str | None = None
         self._people: list[dict[str, Any]] = []
-
-    # -- entry points ------------------------------------------------------
+        self._pending_entity: str | None = None
 
     async def async_step_bluetooth(
         self, discovery_info: bluetooth.BluetoothServiceInfoBleak
@@ -152,7 +290,6 @@ class BleScalesConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
-
         if parse_service_info(discovery_info) is None:
             return self.async_abort(reason="not_supported")
 
@@ -165,10 +302,9 @@ class BleScalesConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Confirm adding a discovered scale, then collect people."""
         assert self._discovered is not None
         if user_input is not None:
-            return await self.async_step_person()
+            return await self.async_step_people()
         self._set_confirm_only()
         return self.async_show_form(
             step_id="confirm",
@@ -178,47 +314,41 @@ class BleScalesConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose a scale that is advertising, or go enter an address by hand."""
+        """Choose a scale that is advertising, or enter an address by hand."""
         current = self._async_current_ids()
         choices = {
             info.address: f"{info.name} ({info.address})"
             for info in bluetooth.async_discovered_service_info(self.hass, False)
             if info.address not in current and parse_service_info(info) is not None
         }
-
         # Nothing advertising is the NORMAL case: these scales sleep between
-        # weigh-ins. Aborting here would make setup possible only while
-        # standing on the scale, so fall straight through to manual entry.
+        # weigh-ins. Fall through to manual entry rather than aborting, which
+        # would make setup possible only while standing on the scale.
         if not choices:
-            return await self.async_step_manual()
+            return await self.async_step_address()
 
         if user_input is not None:
             self._address = user_input[CONF_ADDRESS]
             self._title = choices[self._address].split(" (")[0]
             await self.async_set_unique_id(self._address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
-            return await self.async_step_person()
+            return await self.async_step_people()
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({vol.Required(CONF_ADDRESS): vol.In(choices)}),
         )
 
-    async def async_step_manual(
+    async def async_step_address(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Enter a scale's Bluetooth address by hand.
-
-        Always reachable, so the scale never has to be awake to set this up.
-        The address is not verified here -- the scale may well be asleep -- so
-        entities stay unavailable until the first advertisement arrives.
-        """
+        """Enter the scale's Bluetooth address by hand."""
         errors: dict[str, str] = {}
         if user_input is not None:
             address = user_input[CONF_ADDRESS].strip().upper()
-            if len(address.split(":")) != 6 or not all(
-                len(p) == 2 and all(c in "0123456789ABCDEF" for c in p)
-                for p in address.split(":")
+            parts = address.split(":")
+            if len(parts) != 6 or not all(
+                len(p) == 2 and all(c in "0123456789ABCDEF" for c in p) for p in parts
             ):
                 errors[CONF_ADDRESS] = "invalid_address"
             else:
@@ -226,47 +356,19 @@ class BleScalesConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._title = f"Scale {address}"
                 await self.async_set_unique_id(address, raise_on_progress=False)
                 self._abort_if_unique_id_configured()
-                return await self.async_step_person()
+                return await self.async_step_people()
 
         return self.async_show_form(
-            step_id="manual",
-            data_schema=vol.Schema({vol.Required(CONF_ADDRESS): selector.TextSelector()}),
+            step_id="address",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_ADDRESS): selector.TextSelector()}
+            ),
             errors=errors,
         )
 
-    # -- people ------------------------------------------------------------
-
-    async def async_step_person(
+    async def async_step_finish(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Collect people, one per pass, until 'add another' is left unticked."""
-        if user_input is not None:
-            add_another = user_input.get(CONF_ADD_ANOTHER, False)
-            self._people.append(_clean(user_input))
-            if add_another:
-                return await self.async_step_person()
-            return self._create()
-
-        assert self._address is not None
-        seen = _last_seen_weight(self.hass, self._address)
-        defaults: dict[str, Any] = {}
-        if seen is not None and not self._people:
-            # Pre-fill from the live reading: whoever is setting this up is
-            # very often the person standing on the scale, and a wrong expected
-            # weight is the single most common reason a reading goes unassigned.
-            defaults[CONF_EXPECTED_WEIGHT_KG] = seen
-
-        return self.async_show_form(
-            step_id="person",
-            data_schema=person_schema(defaults),
-            description_placeholders={
-                "count": str(len(self._people)),
-                "seen": f"{seen:.1f} kg" if seen is not None else "nothing right now",
-            },
-        )
-
-    def _create(self) -> ConfigFlowResult:
-        assert self._address is not None
         return self.async_create_entry(
             title=self._title or f"Scale {self._address}",
             data={CONF_ADDRESS: self._address},
@@ -279,80 +381,95 @@ class BleScalesConfigFlow(ConfigFlow, domain=DOMAIN):
         return BleScalesOptionsFlow()
 
 
-class BleScalesOptionsFlow(OptionsFlow):
+class BleScalesOptionsFlow(PeopleMixin, OptionsFlow):
     """Add, edit and remove the people who use this scale."""
 
     def __init__(self) -> None:
+        self._people: list[dict[str, Any]] = []
+        self._pending_entity: str | None = None
         self._editing: int | None = None
+        self._loaded = False
 
     @property
-    def _people(self) -> list[dict[str, Any]]:
-        return list(self.config_entry.options.get(CONF_PEOPLE, []))
+    def _address(self) -> str:
+        return self.config_entry.data[CONF_ADDRESS]
+
+    def _load(self) -> None:
+        if not self._loaded:
+            self._people = [dict(p) for p in self.config_entry.options.get(CONF_PEOPLE, [])]
+            self._loaded = True
+
+    def _menu_options(self) -> list[str]:
+        options = ["from_ha", "manual"]
+        if self._people:
+            options += ["details", "remove"]
+        return options + ["finish"]
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Menu of what can be done with the configured people."""
-        people = self._people
-        options = ["add"]
-        if people:
-            options += ["edit", "remove"]
-        return self.async_show_menu(step_id="init", menu_options=options)
+        self._load()
+        return await self.async_step_people()
 
-    async def async_step_add(
+    async def async_step_details(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        if user_input is not None:
-            return self._save(self._people + [_clean(user_input)])
-        return self.async_show_form(
-            step_id="add", data_schema=person_schema(offer_add_another=False)
-        )
-
-    async def async_step_edit(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Pick someone to edit, then show their details pre-filled."""
-        people = self._people
+        """Fill in height, age and sex -- the only things needed for body
+        composition, and the only things the quick path cannot measure."""
+        self._load()
         if self._editing is None:
             if user_input is not None:
                 self._editing = int(user_input[CONF_NAME])
-                return await self.async_step_edit()
-            choices = {str(i): p[CONF_NAME] for i, p in enumerate(people)}
+                return await self.async_step_details()
+            choices = {str(i): p[CONF_NAME] for i, p in enumerate(self._people)}
             return self.async_show_form(
-                step_id="edit",
+                step_id="details",
                 data_schema=vol.Schema({vol.Required(CONF_NAME): vol.In(choices)}),
             )
 
+        person = self._people[self._editing]
         if user_input is not None:
-            updated = people[:]
-            updated[self._editing] = _clean(user_input)
-            return self._save(updated)
+            self._people[self._editing] = clean_person({**person, **user_input})
+            self._editing = None
+            return await self.async_step_people()
 
+        fields = dict(body_detail_schema(person))
+        fields[
+            vol.Optional(
+                CONF_EXPECTED_WEIGHT_KG, default=person[CONF_EXPECTED_WEIGHT_KG]
+            )
+        ] = selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=10, max=250, step=0.1, unit_of_measurement="kg"
+            )
+        )
         return self.async_show_form(
-            step_id="edit",
-            data_schema=person_schema(people[self._editing], offer_add_another=False),
+            step_id="details",
+            data_schema=vol.Schema(fields),
+            description_placeholders={"name": person[CONF_NAME]},
         )
 
     async def async_step_remove(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        people = self._people
+        self._load()
         if user_input is not None:
-            keep = [p for p in people if p[CONF_NAME] not in user_input[CONF_PEOPLE]]
-            return self._save(keep)
-        choices = {p[CONF_NAME]: p[CONF_NAME] for p in people}
+            drop = set(user_input[CONF_PEOPLE])
+            self._people = [p for p in self._people if p[CONF_NAME] not in drop]
+            return await self.async_step_people()
+        names = [p[CONF_NAME] for p in self._people]
         return self.async_show_form(
             step_id="remove",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_PEOPLE, default=[]): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=list(choices), multiple=True
-                        )
+                        selector.SelectSelectorConfig(options=names, multiple=True)
                     )
                 }
             ),
         )
 
-    def _save(self, people: list[dict[str, Any]]) -> ConfigFlowResult:
-        return self.async_create_entry(data={CONF_PEOPLE: people})
+    async def async_step_finish(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        return self.async_create_entry(data={CONF_PEOPLE: self._people})

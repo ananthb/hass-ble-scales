@@ -2,9 +2,23 @@
 
 from ble_scales.assign import Person, assign_reading
 
-ANANTH = Person("Ananth", 178, 38, "male", 75.0, 5.0, "person.ananth")
-PARTNER = Person("Partner", 165, 35, "female", 62.0, 5.0, "person.partner")
-CLOSE = Person("Close", 170, 40, "male", 77.0, 5.0, "person.close")
+def _person(name, weight, entity, **kw):
+    """Keyword-only, so a change to Person's field order cannot silently
+    re-map these fixtures onto the wrong attributes."""
+    return Person(
+        name=name,
+        expected_weight_kg=weight,
+        weight_tolerance_kg=kw.pop("tolerance", 5.0),
+        person_entity=entity,
+        **kw,
+    )
+
+
+ANANTH = _person("Ananth", 75.0, "person.ananth", height_cm=178, age_years=38, sex="male")
+PARTNER = _person("Partner", 62.0, "person.partner", height_cm=165, age_years=35, sex="female")
+CLOSE = _person("Close", 77.0, "person.close", height_cm=170, age_years=40, sex="male")
+#: Added the quick way: weight measured off the scale, nothing else known.
+QUICK = _person("Quick", 90.0, "person.quick")
 
 
 def test_single_band_match():
@@ -86,3 +100,15 @@ def test_claim_for_unknown_person_falls_back_to_inference():
 
 def test_claim_with_nobody_configured_is_still_unassigned():
     assert assign_reading(75.0, [], claimed_name="Ananth").person is None
+
+
+def test_person_without_body_details_still_assigns():
+    """The quick path stores only a weight, and that must be enough to be
+    recognised -- composition is what is lost, not identity."""
+    result = assign_reading(90.5, [QUICK])
+    assert result.person is QUICK
+    assert QUICK.can_derive_composition is False
+
+
+def test_person_with_details_can_derive():
+    assert ANANTH.can_derive_composition is True

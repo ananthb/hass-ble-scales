@@ -19,13 +19,18 @@ never opens a GATT connection, which is not merely simpler:
 
 ## What it gives you
 
-| Entity | Source |
-|---|---|
-| Weight | measured |
-| Impedance | measured (disabled by default) |
-| Person / Assignment reason / Claimed by | inferred, see below |
-| A "weighing in" button per person | explicit claim |
-| BMI, body fat (% and kg), fat-free mass, skeletal muscle, body water, BMR | **estimated**, see below |
+**Every measurement belongs to a person.** Each configured person becomes their
+own device, with their own weight, impedance, BMI, body fat (% and kg),
+fat-free mass, skeletal muscle, body water, BMR, last-measured timestamp and a
+*"weighing in"* button.
+
+There is no generic weight sensor, and that is deliberate: one shared entity
+would interleave everybody who steps on the scale into a single history, and
+its long-term statistics would then describe who weighed in most recently
+rather than anybody's actual weight.
+
+The scale device carries only what is about the scale — last measurement time,
+signal strength, and why the last reading was or was not assigned.
 
 ## Read this before trusting the body-composition numbers
 
@@ -80,6 +85,21 @@ If it is still ambiguous, the reading is left **unassigned** and the
 match would silently corrupt the history of two people at once, and nothing
 downstream could detect it. An unassigned reading is a nuisance; a
 misattributed one is data loss.
+
+### Setting people up
+
+The quick path is the default: **pick yourself from the people Home Assistant
+already knows, then stand on the scale.** Your usual weight is read straight
+off it, so there is nothing to type. Height, age and sex are offered on the same
+screen, all optional — fill them in for body composition, skip them for weight
+only, add them later from the options.
+
+*Add manually* exists for someone who is not a person in Home Assistant, such as
+a guest or a child without an account.
+
+Home Assistant's `person` entities cannot store height, age or sex — the schema
+is closed to `name`, `user_id`, `device_trackers` and `picture` — so those live
+with this integration, keyed to the person's entity id.
 
 People are configured **during initial setup**, and can be added, edited or
 removed later under the integration's options. Height, age and sex are what turn

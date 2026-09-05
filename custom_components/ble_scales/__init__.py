@@ -31,9 +31,13 @@ def people_from_options(options: dict) -> list[Person]:
         people.append(
             Person(
                 name=raw[CONF_NAME],
-                height_cm=float(raw[CONF_HEIGHT_CM]),
-                age_years=int(raw[CONF_AGE_YEARS]),
-                sex=raw[CONF_SEX],
+                height_cm=(
+                    float(raw[CONF_HEIGHT_CM]) if raw.get(CONF_HEIGHT_CM) else None
+                ),
+                age_years=(
+                    int(raw[CONF_AGE_YEARS]) if raw.get(CONF_AGE_YEARS) else None
+                ),
+                sex=raw.get(CONF_SEX) or None,
                 expected_weight_kg=float(raw[CONF_EXPECTED_WEIGHT_KG]),
                 weight_tolerance_kg=float(
                     raw.get(CONF_WEIGHT_TOLERANCE_KG, DEFAULT_WEIGHT_TOLERANCE_KG)

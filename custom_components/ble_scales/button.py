@@ -1,10 +1,9 @@
 """A 'weighing in next' button per configured person.
 
-Inference over weight is unavoidable for a scale that broadcasts anonymously,
-but it does not have to be the only mechanism. Pressing your own button before
-you step on is unambiguous evidence, and it is the only thing that reliably
-separates two people of similar weight -- exactly where the weight band gives
-up and leaves the reading unassigned.
+Weight matching is the primary mechanism and handles most weigh-ins with nobody
+pressing anything. This is the escape hatch for the case it cannot solve: two
+people close enough in weight that the band matches both, where inference
+correctly refuses to guess and would otherwise leave the reading unassigned.
 
 One button per person, so they can go straight on a dashboard or a wall tablet
 next to the scale.
@@ -16,12 +15,12 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .assign import Person
 from .const import DOMAIN
 from .coordinator import ScaleCoordinator
+from .sensor import person_device
 
 
 async def async_setup_entry(
@@ -55,14 +54,9 @@ class ClaimButton(ButtonEntity):
         # silently retargeting an existing one that a dashboard still points at.
         self._attr_unique_id = f"{address}_claim_{person.name}"
         self._attr_translation_key = "claim"
-        self._attr_translation_placeholders = {"person": person.name}
-        self._attr_name = f"{person.name} weighing in"
-        self._attr_device_info = DeviceInfo(
-            connections={(CONNECTION_BLUETOOTH, address)},
-            identifiers={(DOMAIN, address)},
-            name=entry.title,
-            manufacturer="BLE Scales",
-        )
+        # Lives on the person's own device, next to their measurements, rather
+        # than on the scale -- pressing it is a statement about a person.
+        self._attr_device_info = person_device(entry, person)
 
     async def async_press(self) -> None:
         """Claim the next reading for this person."""

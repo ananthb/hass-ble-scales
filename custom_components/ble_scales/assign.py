@@ -35,15 +35,28 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Person:
-    """A configured user of the scale."""
+    """A configured user of the scale.
+
+    Height, age and sex are Optional because the fast way to add someone is to
+    stand on the scale and pick them from a list -- at which point their weight
+    is known and nothing else is. Without those three, this person still gets
+    assignment, a weigh-in button and a weight history; they just do not get
+    body composition, which cannot be derived without them. Making them
+    mandatory would mean a form full of typing before the integration did
+    anything at all.
+    """
 
     name: str
-    height_cm: float
-    age_years: int
-    sex: str
     expected_weight_kg: float
     weight_tolerance_kg: float
+    height_cm: float | None = None
+    age_years: int | None = None
+    sex: str | None = None
     person_entity: str | None = None
+
+    @property
+    def can_derive_composition(self) -> bool:
+        return None not in (self.height_cm, self.age_years, self.sex)
 
 
 @dataclass(frozen=True)

@@ -7,31 +7,61 @@
       },
       "user": {
         "title": "Add a BLE scale",
-        "description": "Pick a scale that is advertising right now, or leave this and enter an address by hand.",
-        "data": { "address": "Scale" }
+        "description": "Pick a scale that is advertising right now.",
+        "data": {
+          "address": "Scale"
+        }
       },
-      "manual": {
+      "address": {
         "title": "Enter the scale's address",
         "description": "These scales sleep between weigh-ins and only advertise while someone is standing on them, so nothing may be listed. Enter the Bluetooth address (AA:BB:CC:DD:EE:FF) to set it up now; entities stay unavailable until the first reading arrives.",
-        "data": { "address": "Bluetooth address" }
+        "data": {
+          "address": "Bluetooth address"
+        }
       },
-      "person": {
+      "people": {
         "title": "Who uses this scale?",
-        "description": "Height, age and sex are what turn a weight into body composition — without a person configured, only weight and impedance are reported. Each person also gets a “weighing in” button to claim the next reading.\n\nPeople added so far: {count}. Scale currently reads: {seen}.",
+        "description": "Added so far: {count}.\n\nPick someone Home Assistant already knows and step on the scale \u2014 that fills in everything. Add manually only for someone who is not a person in Home Assistant, like a guest.",
+        "menu_options": {
+          "from_ha": "Add from Home Assistant",
+          "manual": "Add manually",
+          "details": "Fill in height, age and sex",
+          "remove": "Remove people",
+          "finish": "Done"
+        }
+      },
+      "from_ha": {
+        "title": "Who are you?",
+        "description": "Pick yourself from the people Home Assistant knows about.",
+        "data": {
+          "person_entity": "Person"
+        }
+      },
+      "weigh": {
+        "title": "Stand on the scale",
+        "description": "Step on the scale, wait for it to settle, then submit \u2014 your usual weight is read straight off it, so there is nothing to type.\n\nScale currently reads: {seen}.\n\nHeight, age and sex are the only things the scale cannot measure. Fill them in if you want body fat, muscle and BMI; leave them blank for weight only. You can add them later.",
+        "data": {
+          "height_cm": "Height",
+          "age_years": "Age",
+          "sex": "Sex"
+        }
+      },
+      "manual": {
+        "title": "Add someone manually",
+        "description": "For someone who is not a person in Home Assistant. Scale currently reads: {seen}.",
         "data": {
           "name": "Name",
+          "expected_weight_kg": "Usual weight",
           "height_cm": "Height",
           "age_years": "Age",
           "sex": "Sex",
-          "expected_weight_kg": "Usual weight",
-          "weight_tolerance_kg": "Match within",
-          "person_entity": "Linked person (breaks ties by presence)",
-          "add_another": "Add another person"
+          "weight_tolerance_kg": "Match within"
         }
       }
     },
     "error": {
-      "invalid_address": "That is not a Bluetooth address. Expected six hex pairs, like A0:91:61:C8:0B:5D."
+      "invalid_address": "That is not a Bluetooth address. Expected six hex pairs, like A0:91:61:C8:0B:5D.",
+      "no_reading": "The scale is not broadcasting a weight. Step on it, wait for it to settle, and submit again."
     },
     "abort": {
       "already_configured": "This scale is already set up.",
@@ -40,66 +70,124 @@
   },
   "options": {
     "step": {
-      "init": {
+      "people": {
         "title": "People",
+        "description": "Configured: {count}.",
         "menu_options": {
-          "add": "Add a person",
-          "edit": "Edit a person",
-          "remove": "Remove people"
+          "from_ha": "Add from Home Assistant",
+          "manual": "Add manually",
+          "details": "Fill in height, age and sex",
+          "remove": "Remove people",
+          "finish": "Done"
         }
       },
-      "add": {
-        "title": "Add a person",
+      "from_ha": {
+        "title": "Who are you?",
+        "description": "Pick someone from the people Home Assistant knows about.",
+        "data": {
+          "person_entity": "Person"
+        }
+      },
+      "weigh": {
+        "title": "Stand on the scale",
+        "description": "Step on the scale, wait for it to settle, then submit. Scale currently reads: {seen}.\n\nHeight, age and sex are optional and only affect body composition.",
+        "data": {
+          "height_cm": "Height",
+          "age_years": "Age",
+          "sex": "Sex"
+        }
+      },
+      "manual": {
+        "title": "Add someone manually",
+        "description": "For someone who is not a person in Home Assistant. Scale currently reads: {seen}.",
         "data": {
           "name": "Name",
+          "expected_weight_kg": "Usual weight",
           "height_cm": "Height",
           "age_years": "Age",
           "sex": "Sex",
-          "expected_weight_kg": "Usual weight",
-          "weight_tolerance_kg": "Match within",
-          "person_entity": "Linked person (breaks ties by presence)"
+          "weight_tolerance_kg": "Match within"
         }
       },
-      "edit": {
-        "title": "Edit a person",
+      "details": {
+        "title": "Body details",
+        "description": "These are the only values the scale cannot measure, and they are what turn a weight into body fat, muscle and BMI. Home Assistant's person entities cannot store them, so they live with this integration.",
         "data": {
-          "name": "Name",
+          "name": "Person",
           "height_cm": "Height",
           "age_years": "Age",
           "sex": "Sex",
-          "expected_weight_kg": "Usual weight",
-          "weight_tolerance_kg": "Match within",
-          "person_entity": "Linked person (breaks ties by presence)"
+          "expected_weight_kg": "Usual weight"
         }
       },
       "remove": {
         "title": "Remove people",
-        "data": { "people": "People to remove" }
+        "data": {
+          "people": "People to remove"
+        }
       }
+    },
+    "error": {
+      "no_reading": "The scale is not broadcasting a weight. Step on it, wait for it to settle, and submit again."
     }
   },
   "selector": {
     "sex": {
-      "options": { "male": "Male", "female": "Female" }
+      "options": {
+        "male": "Male",
+        "female": "Female"
+      }
     }
   },
   "entity": {
     "sensor": {
-      "weight": { "name": "Weight" },
-      "impedance": { "name": "Impedance" },
-      "person": { "name": "Person" },
-      "assignment_reason": { "name": "Assignment reason" },
-      "claimed_by": { "name": "Claimed by" },
-      "bmi": { "name": "BMI" },
-      "body_fat_percent": { "name": "Body fat" },
-      "body_fat_kg": { "name": "Body fat mass" },
-      "fat_free_mass_kg": { "name": "Fat-free mass" },
-      "skeletal_muscle_kg": { "name": "Skeletal muscle mass" },
-      "total_body_water_percent": { "name": "Body water" },
-      "basal_metabolic_rate_kcal": { "name": "Basal metabolic rate" }
+      "weight": {
+        "name": "Weight"
+      },
+      "impedance": {
+        "name": "Impedance"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "body_fat_percent": {
+        "name": "Body fat"
+      },
+      "body_fat_kg": {
+        "name": "Body fat mass"
+      },
+      "fat_free_mass_kg": {
+        "name": "Fat-free mass"
+      },
+      "skeletal_muscle_kg": {
+        "name": "Skeletal muscle mass"
+      },
+      "total_body_water_percent": {
+        "name": "Body water"
+      },
+      "basal_metabolic_rate_kcal": {
+        "name": "Basal metabolic rate"
+      },
+      "last_measured": {
+        "name": "Last measured"
+      },
+      "last_measurement": {
+        "name": "Last measurement"
+      },
+      "rssi": {
+        "name": "Signal strength"
+      },
+      "assignment_reason": {
+        "name": "Assignment reason"
+      },
+      "claimed_by": {
+        "name": "Claimed by"
+      }
     },
     "button": {
-      "claim": { "name": "{person} weighing in" }
+      "claim": {
+        "name": "Weighing in"
+      }
     }
   }
 }
