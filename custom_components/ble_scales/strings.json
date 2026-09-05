@@ -1,0 +1,44 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "confirm": {
+        "description": "Add the scale {name}? Readings arrive passively from its advertisements; nothing connects to it."
+      },
+      "user": {
+        "title": "Add a BLE scale",
+        "description": "Only scales advertising right now are listed. These scales sleep between weigh-ins, so step on yours and try again if the list is empty.",
+        "data": { "address": "Scale" }
+      }
+    },
+    "abort": {
+      "already_configured": "This scale is already set up.",
+      "no_devices_found": "No supported scale is advertising. Step on the scale and retry.",
+      "not_supported": "That device uses the same Bluetooth service as a supported scale, but its readings are in a format this integration does not decode."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "People",
+        "description": "Height, age and sex are required to estimate body composition; without them only weight and impedance are reported. Readings are assigned by weight, with a linked person entity breaking ties when two people are close in weight.",
+        "data": { "people": "People" }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "weight": { "name": "Weight" },
+      "impedance": { "name": "Impedance" },
+      "person": { "name": "Person" },
+      "assignment_reason": { "name": "Assignment reason" },
+      "bmi": { "name": "BMI" },
+      "body_fat_percent": { "name": "Body fat" },
+      "body_fat_kg": { "name": "Body fat mass" },
+      "fat_free_mass_kg": { "name": "Fat-free mass" },
+      "skeletal_muscle_kg": { "name": "Skeletal muscle mass" },
+      "total_body_water_percent": { "name": "Body water" },
+      "basal_metabolic_rate_kcal": { "name": "Basal metabolic rate" }
+    }
+  }
+}

@@ -1,0 +1,112 @@
+# hass-ble-scales
+
+Home Assistant integration for cheap **broadcast** BLE bathroom scales — the
+rebadged Chipsea/AAA-series units sold under a dozen brand names (Meditive and
+friends). Reads the weight straight out of the Bluetooth advertisement: no
+pairing, no connection, no vendor app, no cloud.
+
+Install through HACS as a custom repository, category **Integration**.
+
+## Why passive matters
+
+These scales put the reading in the advertisement itself. This integration
+never opens a GATT connection, which is not merely simpler:
+
+- It cannot occupy one of an ESPHome proxy's three connection slots, so it
+  cannot starve the other Bluetooth devices sharing that proxy.
+- It works through any adapter or proxy Home Assistant already has.
+- It works on Home Assistant **Container** as well as OS — it is a HACS
+  integration, not an add-on, so it needs no Supervisor.
+
+## What it gives you
+
+| Entity | Source |
+|---|---|
+| Weight | measured |
+| Impedance | measured (disabled by default) |
+| Person / Assignment reason | inferred, see below |
+| BMI, body fat (% and kg), fat-free mass, skeletal muscle, body water, BMR | **estimated**, see below |
+
+## Read this before trusting the body-composition numbers
+
+**The scale measures two things: weight and one whole-body impedance.** Nothing
+else. Every body-fat or muscle figure — on this integration, in the vendor app,
+on the scale's own display — is *computed* from those two numbers plus your
+height, age and sex.
+
+This integration uses published, peer-reviewed single-frequency BIA equations
+and cites each one in [`body.py`](custom_components/ble_scales/body.py):
+
+- **Fat-free mass** — Sun et al. (2003), *Am J Clin Nutr* 77(2):331-340, from
+  NHANES III. Chosen because it needs only resistance, and consumer scales
+  cannot report reactance.
+- **Skeletal muscle mass** — Janssen et al. (2000), *J Appl Physiol*
+  89(2):465-471, validated against MRI.
+- **Basal metabolic rate** — Mifflin-St Jeor (1990). Needs no impedance, so it
+  works from a weight-only reading.
+- **Total body water** — derived from fat-free mass at the standard 73.2 %
+  hydration constant.
+
+Three consequences, stated plainly:
+
+1. **These will not match your vendor app.** A different regression over the
+   same impedance gives a different answer. Neither is a measurement.
+2. **They are a trend, not a truth.** Useful for one person on one scale over
+   time. Absolute values from consumer BIA are not clinically meaningful.
+3. **Missing fields are missing on purpose.** No bone mass, no visceral fat, no
+   metabolic age. There is no defensible published single-frequency equation
+   for them, and a plausible-looking invented number is worse than none.
+
+Vendor-exact algorithms do exist — openScale ports several — but the ones that
+reproduce a display exactly take *ten* impedances from a multi-frequency,
+multi-segment scale. This family broadcasts one, so they cannot be used here.
+
+## Assigning readings to people
+
+The scale broadcasts anonymously, so this is inference. Two signals, in order:
+
+1. **Weight band** — a reading within your configured tolerance (default 5 kg)
+   of your expected weight is yours.
+2. **Presence** — if several people match on weight, those whose linked
+   `person` entity is not home are dropped.
+
+If it is still ambiguous, the reading is left **unassigned** and the
+`Assignment reason` sensor says why. This is deliberate: picking the nearest
+match would silently corrupt the history of two people at once, and nothing
+downstream could detect it. An unassigned reading is a nuisance; a
+misattributed one is data loss.
+
+Configure people under the integration's options. Height, age and sex are
+required for any body composition; without them you still get weight and
+impedance.
+
+## Supported scales
+
+Currently the **AAA-series** broadcast family: service `0xFFB0`, manufacturer
+data of at least 12 bytes carrying the MAC reversed plus a six-byte XOR-masked
+payload. Verified against an `AAA044` unit.
+
+The manifest claims the whole `0xFFB0` service, which other unrelated scale
+families also use, so the config flow **parses and checksums the advertisement
+before adopting a device** and refuses anything it cannot decode. That is
+deliberate: silently adopting a device and reporting a confidently wrong weight
+is the worst possible failure here.
+
+Adding a family means a parser function and one registry entry in
+[`parser.py`](custom_components/ble_scales/parser.py). Captures welcome.
+
+## Credits
+
+Protocol decoding is owed to [openScale](https://github.com/oliexdev/openScale)
+(GPL-3.0), whose `AAAxHandler` documents this family's framing. AGPL-3.0 and
+GPL-3.0 are mutually compatible via section 13 of each.
+
+For a broader set of scales with a different architecture — a Home Assistant
+*add-on* covering some 40 families — see
+[ble-scale-sync](https://github.com/KristianP26/ble-scale-sync). It requires
+Supervisor, so it does not run on Home Assistant Container, and it does not
+currently cover this AAA-series family.
+
+## Licence
+
+AGPL-3.0-only. See [`LICENSE`](LICENSE).
