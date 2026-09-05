@@ -22,14 +22,44 @@ def _encode(company_id: int, value: int, frame_type: int, mac=b"\x00" * 6) -> by
     return bytes(mac) + bytes(b ^ key for b in payload)
 
 
-def test_real_capture_is_a_valid_impedance_frame():
-    """The one frame we know is genuine must decode, checksum included."""
-    reading = parse_aaa(REAL_COMPANY_ID, REAL_MFR_DATA)
+def test_real_impedance_frame_reports_nothing():
+    """The 0xA6 frame validates its checksum but carries no measurement.
+
+    Bytes 2..3 read 00 02 in every frame captured -- idle, settling, and
+    immediately after a settled barefoot weigh-in. Reporting 2 ohms would feed
+    the BIA equations a number that produces confident nonsense, so an
+    implausible impedance is reported as no impedance at all.
+    """
+    assert parse_aaa(REAL_COMPANY_ID, REAL_MFR_DATA) is None
+
+
+def test_impedance_is_not_read_with_the_weight_mask():
+    """Regression: the weight frame's 18-bit mask drags in two bits from the
+    drifting byte 1 and turns 2 into 196610, which looks real enough to be
+    believed. Captured live before it was caught."""
+    frame = bytes.fromhex("5d0bc86191a0" "a2b3a0a206bd")  # 02 13 00 02 a6 1d
+    payload = bytes(b ^ 0xA0 for b in frame[6:12])
+    value = int.from_bytes(payload[0:4], "big")
+    assert value & 0x3FFFF == 196610  # what the wrong mask gave
+    assert value & 0xFFFF == 2  # what the field actually holds
+    assert parse_aaa(REAL_COMPANY_ID, frame) is None
+
+
+def test_settled_weight_frame_from_hardware():
+    """The real settled weigh-in: 83.09 kg, bit 31 set."""
+    frame = bytes.fromhex("5d0bc86191a0" "202de4320db0")
+    reading = parse_aaa(REAL_COMPANY_ID, frame)
     assert reading is not None
-    # Nobody was standing on it: an unstable impedance frame reading 2.
-    assert reading.weight_kg is None
-    assert reading.impedance == 2
-    assert reading.stable is False
+    assert reading.weight_kg == 83.09
+    assert reading.stable is True
+
+
+def test_settling_frame_differs_from_settled_by_one_bit():
+    """Same payload, stable flag clear -- captured back to back."""
+    settling = parse_aaa(REAL_COMPANY_ID, bytes.fromhex("5d0bc86191a0" "a02de4320db0"))
+    assert settling is not None
+    assert settling.weight_kg == 83.09
+    assert settling.stable is False
 
 
 def test_real_capture_payload_deobfuscates_as_documented():

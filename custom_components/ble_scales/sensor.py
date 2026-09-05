@@ -40,8 +40,15 @@ from .coordinator import PersonState, ScaleCoordinator, ScaleState
 
 @dataclass(frozen=True, kw_only=True)
 class PersonSensorDescription(SensorEntityDescription):
-    """A per-person sensor plus how to read it out of that person's state."""
+    """A per-person sensor plus how to read it out of that person's state.
 
+    `label` is the human-readable half of the entity name, combined with the
+    person's name at construction. It is separate from `translation_key`
+    because these entities do not use has_entity_name, so Home Assistant never
+    looks the translation up for them.
+    """
+
+    label: str
     value_fn: Callable[[PersonState], float | int | datetime | None]
 
 
@@ -59,80 +66,35 @@ def _body(attr: str) -> Callable[[PersonState], float | int | None]:
     return _get
 
 
+# Only what this hardware can actually produce. The BIA-derived sensors -- body
+# fat, fat-free mass, skeletal muscle, body water -- are deliberately absent:
+# the advertisement carries no impedance (see docs/protocol.md), so they would
+# read "unknown" forever and imply a measurement the broadcast never makes.
+# body.py still computes them and the parser still decodes an impedance frame,
+# so re-adding them is a one-line change once impedance can actually be read.
 PERSON_SENSORS: tuple[PersonSensorDescription, ...] = (
     PersonSensorDescription(
         key="weight",
         translation_key="weight",
+        label="Weight",
         device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfMass.KILOGRAMS,
         suggested_display_precision=1,
         value_fn=lambda s: s.weight_kg,
     ),
-    # Raw impedance is the input every derived value below is a regression
-    # over. When an estimate looks wrong, this is the only field that says
-    # whether the scale or the equation is at fault.
-    PersonSensorDescription(
-        key="impedance",
-        translation_key="impedance",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement="Ω",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda s: s.impedance,
-    ),
     PersonSensorDescription(
         key="bmi",
         translation_key="bmi",
+        label="BMI",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         value_fn=_body("bmi"),
     ),
     PersonSensorDescription(
-        key="body_fat_percent",
-        translation_key="body_fat_percent",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=PERCENTAGE,
-        suggested_display_precision=1,
-        value_fn=_body("body_fat_percent"),
-    ),
-    PersonSensorDescription(
-        key="body_fat_kg",
-        translation_key="body_fat_kg",
-        device_class=SensorDeviceClass.WEIGHT,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
-        suggested_display_precision=2,
-        value_fn=_body("body_fat_kg"),
-    ),
-    PersonSensorDescription(
-        key="fat_free_mass_kg",
-        translation_key="fat_free_mass_kg",
-        device_class=SensorDeviceClass.WEIGHT,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
-        suggested_display_precision=2,
-        value_fn=_body("fat_free_mass_kg"),
-    ),
-    PersonSensorDescription(
-        key="skeletal_muscle_kg",
-        translation_key="skeletal_muscle_kg",
-        device_class=SensorDeviceClass.WEIGHT,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
-        suggested_display_precision=2,
-        value_fn=_body("skeletal_muscle_kg"),
-    ),
-    PersonSensorDescription(
-        key="total_body_water_percent",
-        translation_key="total_body_water_percent",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=PERCENTAGE,
-        suggested_display_precision=1,
-        value_fn=_body("total_body_water_percent"),
-    ),
-    PersonSensorDescription(
         key="basal_metabolic_rate_kcal",
         translation_key="basal_metabolic_rate_kcal",
+        label="Basal metabolic rate",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="kcal",
         value_fn=_body("basal_metabolic_rate_kcal"),
@@ -140,6 +102,7 @@ PERSON_SENSORS: tuple[PersonSensorDescription, ...] = (
     PersonSensorDescription(
         key="last_measured",
         translation_key="last_measured",
+        label="Last measured",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda s: s.last_measured_at,
     ),
@@ -192,19 +155,20 @@ def scale_device(entry: ConfigEntry) -> DeviceInfo:
 
 
 def person_device(entry: ConfigEntry, person: Person) -> DeviceInfo:
-    """One device per person, hung off the scale.
+    """Everything lives on the scale device, including per-person readings.
 
-    Keyed by name rather than by index so that removing somebody does not
-    silently re-point another person's entities at their history.
+    An earlier version gave each person their own device. It produced something
+    that looked like a second, competing person in the UI, which is misleading:
+    Home Assistant already has a person entity for these people, and this
+    integration has no business appearing to be another one.
+
+    Attaching the entities to the real person entity is not possible either.
+    The person integration owns its entities through its own EntityComponent
+    and storage collection, and persons are not devices, so there is no hook
+    for another integration to hang anything off one. Scale device it is, with
+    the person's name carried in each entity's own name instead.
     """
-    address = entry.data[CONF_ADDRESS]
-    return DeviceInfo(
-        identifiers={(DOMAIN, f"{address}_{person.name}")},
-        name=person.name,
-        manufacturer="BLE Scales",
-        model="Person",
-        via_device=(DOMAIN, address),
-    )
+    return scale_device(entry)
 
 
 async def async_setup_entry(
@@ -227,7 +191,6 @@ async def async_setup_entry(
 
 
 class _BaseSensor(SensorEntity):
-    _attr_has_entity_name = True
     _attr_should_poll = False
 
     def __init__(self, coordinator: ScaleCoordinator) -> None:
@@ -258,7 +221,14 @@ class PersonSensor(_BaseSensor):
         self._person = person
         address = entry.data[CONF_ADDRESS]
         self._attr_unique_id = f"{address}_{person.name}_{description.key}"
-        self._attr_device_info = person_device(entry, person)
+        self._attr_device_info = scale_device(entry)
+        # has_entity_name is deliberately off here. With it on, Home Assistant
+        # prefixes the device name, giving sensor.<scale>_<person>_weight --
+        # and if the person's own name already ends in a word like "weight",
+        # that word appears twice. An explicit name keeps this readable:
+        # "Ananth Weight" -> sensor.ananth_weight.
+        self._attr_has_entity_name = False
+        self._attr_name = f"{person.name} {description.label}"
 
     @property
     def available(self) -> bool:
@@ -278,6 +248,7 @@ class PersonSensor(_BaseSensor):
 class ScaleDiagnosticSensor(_BaseSensor):
     """Something about the scale itself, never about a body."""
 
+    _attr_has_entity_name = True
     entity_description: ScaleSensorDescription
 
     def __init__(

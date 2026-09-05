@@ -19,18 +19,42 @@ never opens a GATT connection, which is not merely simpler:
 
 ## What it gives you
 
-**Every measurement belongs to a person.** Each configured person becomes their
-own device, with their own weight, impedance, BMI, body fat (% and kg),
-fat-free mass, skeletal muscle, body water, BMR, last-measured timestamp and a
-*"weighing in"* button.
+**Every measurement belongs to a person.** Each configured person gets their own
+weight, BMI, basal metabolic rate, last-measured timestamp and a *"weighing in"*
+button, all named for them.
 
 There is no generic weight sensor, and that is deliberate: one shared entity
-would interleave everybody who steps on the scale into a single history, and
-its long-term statistics would then describe who weighed in most recently
-rather than anybody's actual weight.
+would interleave everybody who steps on the scale into a single history, and its
+long-term statistics would then describe who weighed in most recently rather
+than anybody's actual weight.
 
-The scale device carries only what is about the scale — last measurement time,
-signal strength, and why the last reading was or was not assigned.
+Everything hangs off the single scale device. Entities are **not** attached to
+Home Assistant `person` entities and no per-person device is created — the
+person integration owns its entities through its own `EntityComponent`, and
+persons are not devices, so there is no hook to hang anything off one. Creating
+a device per person only produced something that looked like a competing person
+in the UI.
+
+The scale itself carries last measurement time, signal strength, why the last
+reading was or was not assigned, and a *Cancel weigh-in* button.
+
+### No body fat, and why
+
+This scale broadcasts **weight only**. Its impedance frame exists, and its
+checksum validates, but the value is constant across every frame captured —
+idle, settling, and a settled barefoot weigh-in. See
+[`docs/protocol.md`](docs/protocol.md) for the captures.
+
+So body fat, fat-free mass, skeletal muscle and body water are not exposed:
+they would read "unknown" forever and imply a measurement that never happened.
+BMI and basal metabolic rate are still there, because they are computed from
+weight, height, age and sex and never needed impedance.
+
+The vendor Android app *does* show body composition, so the scale must expose
+impedance somehow — almost certainly over a GATT connection rather than the
+broadcast, since these units advertise `connectable: true`. The equations and
+the parser support are already written; re-enabling those sensors is a small
+change once impedance can actually be read.
 
 ## Read this before trusting the body-composition numbers
 
