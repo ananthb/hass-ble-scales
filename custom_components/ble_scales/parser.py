@@ -32,10 +32,12 @@ from typing import Callable
 #   [4]     frame type:      0xAD weight, 0xA6 impedance
 #   [5]     checksum:        sum(payload[0..4]) & 0x1F, compared on low 5 bits
 #
-# THE IMPEDANCE FRAME IS NOT CONFIRMED. openScale decodes the weight frame and
-# explicitly does not decode this one ("protocol known but not implemented
-# here"), so there is no second implementation to check against. What is known
-# from live captures:
+# The impedance frame follows the standard Chipsea broadcast layout even though
+# openScale does not decode it ("protocol known but not implemented here").
+# Captures from an AAA044 so far all read a raw of 2, i.e. 0.2 ohm, which is
+# what this family reports when it has not completed a BIA measurement --
+# electrodes need bare, clean, slightly damp skin, and dry or dirty feet
+# produce exactly this. The frames seen:
 #
 #   02 13 00 02 A6 1D     idle, nobody on the scale
 #   02 14 00 02 A6 1E     idle, a few minutes earlier
@@ -54,14 +56,22 @@ AAA_MIN_LEN = 12
 AAA_TYPE_WEIGHT = 0xAD
 AAA_TYPE_IMPEDANCE = 0xA6
 AAA_GRAMS_MASK = 0x3FFFF
-#: Impedance is read as a plain 16-bit field, NOT the 18-bit weight field.
-AAA_IMPEDANCE_MASK = 0xFFFF
-#: Whole-body impedance at the single frequency these scales use falls roughly
-#: in this band for an adult with bare feet on the electrodes. Outside it means
-#: no contact (socks, shoes, mid-settle) or a misread field -- either way it is
-#: not something to derive a body from.
-AAA_IMPEDANCE_MIN = 100
-AAA_IMPEDANCE_MAX = 1500
+#: Impedance is a u16 big-endian at payload bytes 2..3, scaled by 10 -- the
+#: standard Chipsea broadcast layout, as used by openScale's OkOk 0xC0 handler
+#: (IDX_IMPEDANCE_MSB/LSB = 2/3) and by BioScale's decoder, which reads
+#: `(data[2] << 8) | data[3]` and divides by 10.
+#:
+#: NOT the 18-bit field the weight uses. That mask spans bytes 1..3 and drags
+#: in two bits of byte 1, which drifts between frames -- it turns a raw 2 into
+#: 196610, a number plausible enough to be believed.
+AAA_IMPEDANCE_SCALE = 10.0
+#: Whole-body impedance at the single frequency these scales use sits roughly
+#: in this band for an adult with bare feet on the electrodes. Below it means
+#: the scale has not completed a BIA measurement -- dry or dirty feet, socks, or
+#: simply not settled yet -- which it reports as a raw value at or near zero
+#: rather than by omitting the frame.
+AAA_IMPEDANCE_MIN_OHM = 100.0
+AAA_IMPEDANCE_MAX_OHM = 1500.0
 # The grams field is 18 bits, so it saturates at 262.143 kg on its own. An
 # upper sanity guard would be unreachable code, and a tighter one (a "nobody
 # weighs that much" limit) would silently discard real readings from heavy
@@ -73,7 +83,7 @@ class ScaleReading:
     """One decoded advertisement."""
 
     weight_kg: float | None = None
-    impedance: int | None = None
+    impedance: float | None = None
     stable: bool = False
 
     @property
@@ -107,14 +117,15 @@ def parse_aaa(company_id: int, data: bytes) -> ScaleReading | None:
         return ScaleReading(weight_kg=raw / 1000.0, stable=stable)
 
     if frame_type == AAA_TYPE_IMPEDANCE:
-        impedance = value & AAA_IMPEDANCE_MASK
-        # Report nothing rather than something implausible. An out-of-range
-        # value here is indistinguishable from "no electrode contact", and the
-        # BIA equations downstream will happily turn either into a body fat
-        # percentage that looks entirely real.
-        if not AAA_IMPEDANCE_MIN <= impedance <= AAA_IMPEDANCE_MAX:
+        ohms = ((payload[2] << 8) | payload[3]) / AAA_IMPEDANCE_SCALE
+        # Report nothing rather than something implausible. A near-zero value
+        # means the scale has not completed a BIA measurement, and it is
+        # indistinguishable from a misread field -- the equations downstream
+        # will happily turn either into a body fat percentage that looks
+        # entirely real.
+        if not AAA_IMPEDANCE_MIN_OHM <= ohms <= AAA_IMPEDANCE_MAX_OHM:
             return None
-        return ScaleReading(impedance=impedance, stable=stable)
+        return ScaleReading(impedance=ohms, stable=stable)
 
     return None
 

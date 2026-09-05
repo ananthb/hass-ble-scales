@@ -59,11 +59,28 @@ value once with bit 31 set:
 80 8d 44 92 ad 10   stable=1  83090 g   <- the one to record
 ```
 
-## Impedance frames — the broadcast carries none
+## Impedance frames
 
-The `0xA6` frame exists and its checksum validates, but **it carries no
-measurement.** Every frame captured across a full session — idle, settling, and
-a settled barefoot weigh-in — has bytes 2..3 constant:
+The `0xA6` frame follows the **standard Chipsea broadcast layout**: impedance is
+a `u16` big-endian at payload bytes 2..3, scaled by 10.
+
+```
+impedance_ohm = ((payload[2] << 8) | payload[3]) / 10
+```
+
+Two independent implementations agree on that field position for this chipset
+family: openScale's `OkOkHandler` (`IDX_IMPEDANCE_MSB/LSB = 2/3` in its `0xC0`
+variant) and BioScale's Chipsea broadcast decoder, which reads
+`(data[2] << 8) | data[3]` and divides by 10.
+
+**Do not reuse the weight frame's 18-bit mask here.** It spans bytes 1..3 and
+drags in two bits of byte 1, which drifts between frames — it turns a raw 2
+into 196610, a number plausible enough to be believed and one that silently
+poisons every equation downstream.
+
+### What a scale with no contact reports
+
+Every frame captured from the AAA044 so far reads a raw of 2, i.e. 0.2 Ω:
 
 ```
 02 12 00 02 a6 1c     idle
@@ -72,25 +89,19 @@ a settled barefoot weigh-in — has bytes 2..3 constant:
 02 17 00 02 a6 01     immediately after a settled barefoot weigh-in
 ```
 
-Byte 1 drifts (`0x12`…`0x17`) in a way that looks like a counter. Bytes 2..3 are
-`00 02` in every frame. A constant across a real barefoot measurement is not
-what a wrong byte offset looks like — a wrong offset gives varying garbage.
+Byte 1 drifts (`0x12`…`0x17`) in a way that looks like a counter; bytes 2..3 are
+`00 02` throughout, including immediately after a settled barefoot weigh-in.
 
-Two decoding notes for anyone else trying this:
+That is the scale saying **BIA did not complete**, not that the field is
+missing. These electrodes need bare, clean, slightly damp skin — dry or dirty
+feet, or a dusty scale surface, and the measurement never runs. The frame is
+still broadcast, with a raw at or near zero.
 
-- **Do not reuse the weight frame's 18-bit mask here.** It drags in two bits
-  from the drifting byte 1 and turns 2 into 196610, which looks enough like a
-  real number to be believed.
-- openScale's handler decodes weight and explicitly declines this frame:
-  *"impedance frame seen (ignored)"*, *"protocol known but not implemented
-  here"*. There is no reference implementation to check against.
+openScale never decoded this frame at all (*"impedance frame seen (ignored)"*,
+*"protocol known but not implemented here"*), so a capture carrying a real value
+is still worth contributing here when one turns up.
 
-**The vendor Android app does display body composition for this scale.** Since
-the broadcast demonstrably does not carry impedance, the app must obtain it
-another way — almost certainly over a GATT connection, as these units advertise
-`connectable: true` and expose the `0xFFB0` service. That is the open question,
-and settling it needs a BLE client within range of the scale.
-
-Until then this integration reports only what the broadcast actually contains:
-weight, plus BMI and basal metabolic rate, which are computed from weight,
-height, age and sex and never needed impedance.
+This integration reports no impedance below 100 Ω or above 1500 Ω, treating it
+as no measurement. An adult whole-body value at these scales' single frequency
+sits well inside that band, and feeding a near-zero into the BIA equations
+produces a body fat percentage that looks entirely real.

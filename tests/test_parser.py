@@ -35,14 +35,42 @@ def test_real_impedance_frame_reports_nothing():
 
 def test_impedance_is_not_read_with_the_weight_mask():
     """Regression: the weight frame's 18-bit mask drags in two bits from the
-    drifting byte 1 and turns 2 into 196610, which looks real enough to be
-    believed. Captured live before it was caught."""
+    drifting byte 1 and turns a raw 2 into 196610, which looks real enough to
+    be believed. Captured live before it was caught."""
     frame = bytes.fromhex("5d0bc86191a0" "a2b3a0a206bd")  # 02 13 00 02 a6 1d
     payload = bytes(b ^ 0xA0 for b in frame[6:12])
     value = int.from_bytes(payload[0:4], "big")
     assert value & 0x3FFFF == 196610  # what the wrong mask gave
-    assert value & 0xFFFF == 2  # what the field actually holds
+    assert (payload[2] << 8 | payload[3]) == 2  # the Chipsea field, raw
     assert parse_aaa(REAL_COMPANY_ID, frame) is None
+
+
+def _impedance_frame(raw: int) -> bytes:
+    """Build an impedance frame carrying `raw` in the Chipsea field."""
+    payload = bytearray(b"\x02\x13" + raw.to_bytes(2, "big") + b"\xa6\x00")
+    payload[5] = sum(payload[0:5]) & 0x1F
+    key = (REAL_COMPANY_ID >> 8) & 0xFF
+    return bytes.fromhex("5d0bc86191a0") + bytes(b ^ key for b in payload)
+
+
+def test_real_impedance_decodes_in_ohms():
+    """Standard Chipsea broadcast layout: u16be at bytes 2..3, scaled by 10.
+    A raw of 4864 is 486.4 ohm, a normal adult whole-body value."""
+    reading = parse_aaa(REAL_COMPANY_ID, _impedance_frame(4864))
+    assert reading is not None
+    assert reading.impedance == 486.4
+    assert reading.weight_kg is None
+
+
+def test_near_zero_impedance_is_no_measurement():
+    """What every capture from the real unit so far contains: raw 2, i.e.
+    0.2 ohm. The scale reports this when BIA has not completed -- dry or dirty
+    feet -- rather than omitting the frame."""
+    assert parse_aaa(REAL_COMPANY_ID, _impedance_frame(2)) is None
+
+
+def test_implausibly_high_impedance_is_rejected():
+    assert parse_aaa(REAL_COMPANY_ID, _impedance_frame(60000)) is None
 
 
 def test_settled_weight_frame_from_hardware():

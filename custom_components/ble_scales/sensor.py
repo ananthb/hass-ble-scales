@@ -66,12 +66,11 @@ def _body(attr: str) -> Callable[[PersonState], float | int | None]:
     return _get
 
 
-# Only what this hardware can actually produce. The BIA-derived sensors -- body
-# fat, fat-free mass, skeletal muscle, body water -- are deliberately absent:
-# the advertisement carries no impedance (see docs/protocol.md), so they would
-# read "unknown" forever and imply a measurement the broadcast never makes.
-# body.py still computes them and the parser still decodes an impedance frame,
-# so re-adding them is a one-line change once impedance can actually be read.
+# The BIA-derived sensors stay unknown until the scale actually completes an
+# impedance measurement, which needs bare, clean, slightly damp feet on the
+# electrodes -- dry or dirty skin makes it report a raw near zero instead. That
+# is a property of the weigh-in, not of the integration, so the entities exist
+# and populate when a good reading arrives.
 PERSON_SENSORS: tuple[PersonSensorDescription, ...] = (
     PersonSensorDescription(
         key="weight",
@@ -98,6 +97,64 @@ PERSON_SENSORS: tuple[PersonSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="kcal",
         value_fn=_body("basal_metabolic_rate_kcal"),
+    ),
+    PersonSensorDescription(
+        key="impedance",
+        translation_key="impedance",
+        label="Impedance",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="Ω",
+        suggested_display_precision=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.impedance,
+    ),
+    PersonSensorDescription(
+        key="body_fat_percent",
+        translation_key="body_fat_percent",
+        label="Body fat",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=1,
+        value_fn=_body("body_fat_percent"),
+    ),
+    PersonSensorDescription(
+        key="body_fat_kg",
+        translation_key="body_fat_kg",
+        label="Body fat mass",
+        device_class=SensorDeviceClass.WEIGHT,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
+        suggested_display_precision=2,
+        value_fn=_body("body_fat_kg"),
+    ),
+    PersonSensorDescription(
+        key="fat_free_mass_kg",
+        translation_key="fat_free_mass_kg",
+        label="Fat-free mass",
+        device_class=SensorDeviceClass.WEIGHT,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
+        suggested_display_precision=2,
+        value_fn=_body("fat_free_mass_kg"),
+    ),
+    PersonSensorDescription(
+        key="skeletal_muscle_kg",
+        translation_key="skeletal_muscle_kg",
+        label="Skeletal muscle mass",
+        device_class=SensorDeviceClass.WEIGHT,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
+        suggested_display_precision=2,
+        value_fn=_body("skeletal_muscle_kg"),
+    ),
+    PersonSensorDescription(
+        key="total_body_water_percent",
+        translation_key="total_body_water_percent",
+        label="Body water",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=1,
+        value_fn=_body("total_body_water_percent"),
     ),
     PersonSensorDescription(
         key="last_measured",

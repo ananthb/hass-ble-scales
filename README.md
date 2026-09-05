@@ -38,23 +38,23 @@ in the UI.
 The scale itself carries last measurement time, signal strength, why the last
 reading was or was not assigned, and a *Cancel weigh-in* button.
 
-### No body fat, and why
+### If body fat and muscle read unknown, clean the scale
 
-This scale broadcasts **weight only**. Its impedance frame exists, and its
-checksum validates, but the value is constant across every frame captured —
-idle, settling, and a settled barefoot weigh-in. See
-[`docs/protocol.md`](docs/protocol.md) for the captures.
+Impedance is decoded using the standard Chipsea broadcast layout — `u16` big
+endian at payload bytes 2..3, divided by 10 — which openScale's OkOk handler
+and BioScale's decoder both agree on for this chipset.
 
-So body fat, fat-free mass, skeletal muscle and body water are not exposed:
-they would read "unknown" forever and imply a measurement that never happened.
-BMI and basal metabolic rate are still there, because they are computed from
-weight, height, age and sex and never needed impedance.
+Every capture from the unit this was written against reads a raw of **2**, i.e.
+0.2 Ω. That is the scale reporting that **BIA did not complete**, not a missing
+field. These electrodes need bare, clean, slightly damp skin: dry feet, socks,
+or a dusty scale surface and the measurement simply never runs, while weight
+still reads perfectly.
 
-The vendor Android app *does* show body composition, so the scale must expose
-impedance somehow — almost certainly over a GATT connection rather than the
-broadcast, since these units advertise `connectable: true`. The equations and
-the parser support are already written; re-enabling those sensors is a small
-change once impedance can actually be read.
+So if weight, BMI and BMR populate and the rest stay unknown: wipe the scale
+plate, stand on it barefoot with slightly damp feet, and wait for it to settle.
+Anything below 100 Ω or above 1500 Ω is treated as no measurement rather than
+fed into the equations, where a near-zero would produce a body fat percentage
+that looks entirely real.
 
 ## Read this before trusting the body-composition numbers
 
