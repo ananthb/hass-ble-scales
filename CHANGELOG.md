@@ -1,52 +1,44 @@
 # Changelog
 
-## 0.5.1
-
-- `hide_default_branch` in `hacs.json`: HACS no longer offers `main`, so
-  installs and updates come from tagged releases only. An install already on a
-  release is unaffected; one still tracking `main` has to switch once, as HACS
-  will not move it automatically.
-
 ## 0.5.0
 
-- Decode impedance with the standard Chipsea broadcast layout: `u16` big endian
-  at payload bytes 2..3, divided by 10. It was previously read with the weight
-  frame's 18-bit mask, which turned a raw 2 into 196610 Ω.
-- Body fat, fat-free mass, skeletal muscle, body water and raw impedance are
-  back. They stay unknown until a weigh-in completes a BIA measurement, which
-  needs bare, clean, slightly damp feet.
+- Body fat, fat-free mass, skeletal muscle, body water and impedance now work.
+  They stay unknown until the scale completes an impedance measurement, which
+  needs bare, clean, slightly damp feet — dry skin or a dusty plate and only
+  weight, BMI and BMR will read.
 
 ## 0.4.0
 
-- No per-person device. Entities live on the scale device with the person's name
-  in the entity name, so the integration no longer renders something that looks
-  like a competing Home Assistant person.
-- Added a *Cancel weigh-in* button.
-- Recorded the frame format in `docs/protocol.md`, including the settled weight
-  frame that differs from the sample before it by exactly one bit.
+- Added a *Cancel weigh-in* button, for when you claim a weigh-in and then
+  someone else steps on the scale.
+- Entities no longer sit on a separate per-person device, so the integration
+  stops looking like it has created a second copy of each person. **Entity IDs
+  changed** — remove and re-add the scale.
 
 ## 0.3.0
 
-- Every measurement belongs to a person. A single shared weight entity
-  interleaved everyone into one history, making its long-term statistics
-  meaningless.
-- Setup is now: pick yourself from Home Assistant's people, then stand on the
-  scale. The usual weight is measured rather than typed. Manual entry remains
-  for people who are not in Home Assistant.
-- Height, age and sex are optional; without them you still get weight, BMI, BMR
-  and assignment.
+- Each person now has their own weight and body composition entities. A single
+  shared weight entity mixed everybody into one history, which made its graphs
+  and statistics meaningless. **Entity IDs changed** — remove and re-add the
+  scale.
+- Setup is now: pick yourself from Home Assistant's people and stand on the
+  scale. Your usual weight is measured rather than typed. Manual entry remains
+  for anyone who is not a person in Home Assistant.
+- Height, age and sex are optional. Without them you still get weight, BMI,
+  basal metabolic rate and per-person matching.
 
 ## 0.2.0
 
-- Setup no longer requires the scale to be advertising — enter its Bluetooth
-  address by hand.
-- People are configured during initial setup rather than only afterwards.
-- BMI and basal metabolic rate no longer wait for an impedance frame; neither
-  ever depended on one.
-- Added a *"weighing in"* button per person, which overrides weight matching.
+- The scale no longer has to be awake to set it up — enter its Bluetooth
+  address by hand. These scales sleep between weigh-ins, so the device list was
+  usually empty.
+- People are set up when you add the integration, rather than only afterwards.
+- BMI and basal metabolic rate now appear as soon as a weight arrives, instead
+  of waiting for an impedance reading they never needed.
+- Added a *"weighing in"* button per person: press yours and the next reading
+  is yours, whatever the weight says.
 
 ## 0.1.0
 
-- First release. Reads AAA-series Chipsea broadcast scales passively, assigns
-  readings to people by weight, and derives body composition from published BIA
-  equations.
+- First release. Reads AAA-series broadcast scales, matches readings to people
+  by weight, and derives body composition.
