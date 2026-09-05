@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- `hide_default_branch` in `hacs.json`: HACS no longer offers `main`, so
+  installs and updates come from tagged releases only. An install already on a
+  release is unaffected; one still tracking `main` has to switch once, as HACS
+  will not move it automatically.
+
 ## 0.5.0
 
 - Decode impedance with the standard Chipsea broadcast layout: `u16` big endian
