@@ -1,8 +1,7 @@
 # hass-ble-scales
 
-Home Assistant integration for cheap **broadcast** BLE bathroom scales — the
-rebadged Chipsea/AAA-series units sold under a dozen brand names (Meditive and
-friends). Reads the weight straight out of the Bluetooth advertisement: no
+Home Assistant integration for **broadcast** BLE bathroom scales — the
+Chipsea/AAA-series units sold under many brand names, Meditive among them. Reads the weight straight out of the Bluetooth advertisement: no
 pairing, no connection, no vendor app, no cloud.
 
 Install through HACS as a custom repository, category **Integration**.

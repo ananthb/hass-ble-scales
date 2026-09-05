@@ -18,7 +18,7 @@ Three signals, applied in order:
      the claim were overridden by a weight band the button would be useless
      precisely when it is needed (two people of similar weight).
   1. Weight band -- a person claims a reading within `tolerance` of their
-     expected weight. Cheap, works with no other integration set up.
+     expected weight. Works with no other integration set up.
   2. Presence -- if the band leaves more than one candidate, drop those whose
      linked `person` entity is not home. This breaks the common two-adult tie
      without needing the weights to be far apart.
