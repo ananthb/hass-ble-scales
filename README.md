@@ -7,7 +7,9 @@ composition and BMI.
 
 ## Install
 
-Add `https://github.com/ananthb/hass-ble-scales` as a custom repository in
+[![Open your Home Assistant instance and add this repository to HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ananthb&repository=hass-ble-scales&category=integration)
+
+Or add `https://github.com/ananthb/hass-ble-scales` as a custom repository in
 [HACS](https://hacs.xyz), category **Integration**, then restart Home Assistant.
 
 ## Configure
